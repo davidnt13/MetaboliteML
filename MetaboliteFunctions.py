@@ -12,6 +12,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import KFold, cross_val_score
 from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.preprocessing import StandardScaler
 
 from xgboost import XGBRegressor
 from sklearn.svm import SVR
@@ -59,6 +60,9 @@ def makeTrainAndTest(fileNameTrain, fileNameTest, target, desc):
     elif desc == "Morgan":
         descTrain = CalcMorganFingerprints(fileNameTrain)
         descTest = CalcMorganFingerprints(fileNameTest)
+    elif desc == "Both":
+        descTrain = calcBothDescriptors(fileNameTrain)
+        descTest = calcBothDescriptors(fileNameTest)
     
     train_X = descTrain.dropna(axis = 1)
     train_y = dfTrain[target]
@@ -92,7 +96,7 @@ def plotCVResults(modelType, train_y, myPreds, title):
     ax.set_aspect('equal')
     ax.set_title(f'{title}: CV {modelType} Model Results')
     plt.savefig(f'{title}: CV{modelType}_modelResults.png')
-    plt.show()
+    #plt.show()
 
 def loopedKfoldCrossVal(modelType, cycleNum, train_X, train_y, title, distributor = None):
     num_cv = cycleNum
@@ -105,10 +109,10 @@ def loopedKfoldCrossVal(modelType, cycleNum, train_X, train_y, title, distributo
     myPreds['Prediction'] = np.nan
     myPreds['Fold'] = np.nan
 
-    if distributor == None:
-        train_test_split = KFold(n_splits = num_cv, shuffle=True, random_state=1)
+    if distributor is None:
+        train_test_split = KFold(n_splits = num_cv, shuffle=True)
     else:
-        train_test_split = StratifiedKFold(n_splits = num_cv, shuffle = True, random_state = 1)
+        train_test_split = StratifiedKFold(n_splits = num_cv, shuffle = True)
 
     for n, (train_idx, test_idx) in enumerate(train_test_split.split(train_X, distributor)):
         x_train = train_X.iloc[train_idx]
@@ -117,6 +121,10 @@ def loopedKfoldCrossVal(modelType, cycleNum, train_X, train_y, title, distributo
         y_test = train_y.iloc[test_idx]
 
         model = modelTypes[modelType]
+
+        scaler = StandardScaler()
+        x_train = scaler.fit_transform(x_train)
+        x_test = scaler.transform(x_test)
 
         # Train model
         model.fit(x_train, y_train)
@@ -161,6 +169,27 @@ def loopedKfoldCrossVal(modelType, cycleNum, train_X, train_y, title, distributo
 
     return myPreds, predictionStats
 
+def mixedCV(fileName, descr, model):
+
+    mixDf = pd.read_csv(fileName)
+
+    if descr == "RDKit":
+        df2Mix = CalcRDKitDescriptors(fileName)
+    elif descr == "Morgan":
+        df2Mix = CalcMorganFingerprints(fileName)
+    elif descr == "Both":
+        df2Mix = calcBothDescriptors(fileName)
+
+    allMetabolites = mixDf["Metabolite"].tolist()
+    df2Mix["Metabolite"] = allMetabolites
+    train_X = df2Mix.dropna(axis = 1)
+    train_y = mixDf.pIC50
+    metabolites = mixDf.Metabolite
+    train_X = train_X.drop("Metabolite", axis = 1)
+
+    for index in range(1, 4):
+        loopedKfoldCrossVal(model, 10, train_X, train_y, f"Mixture + {index}", metabolites)
+
 def createSplitsBarChart(predictionStats, title):
 
     columns_to_plot = ['r2', 'rmsd', 'bias', 'sdep']
@@ -177,7 +206,7 @@ def createSplitsBarChart(predictionStats, title):
         axes[idx].set_title(f'Fold {idx + 1}')
         
     plt.savefig(f'{title}: StatisticsPerFold.png')
-    plt.show()
+    #plt.show()
 
 def createAvgBarChart(predictionStats, title):
     df = predictionStats.iloc[:-1]
@@ -190,7 +219,7 @@ def createAvgBarChart(predictionStats, title):
     plt.ylabel('Value (Mean ± Standard Deviation)')
     plt.title(f'{title}: Average Prediction Statistics')
     plt.savefig(f'{title}: AverageStatsCV.png')
-    plt.show()
+    #plt.show()
 
 def modelStats(test_y, y_pred):
     # Coefficient of determination
@@ -228,17 +257,21 @@ def plotter(modelType, test_y, y_pred, title):
     ax.set_title(f'{title}: {modelType} Model')
     ax.text(0.01, 0.99, statisticValues, transform=ax.transAxes, fontsize=12, verticalalignment='top', horizontalalignment='left')
     plt.savefig(f'{title}: {modelType}_model.png')
-    plt.show()
+    #plt.show()
 
 def plotModel(modelType, train_X, train_y, test_X, test_y, title):
     model = modelTypes[modelType]
+    scaler = StandardScaler()
+    train_X = scaler.fit_transform(train_X)
+    test_X = scaler.transform(test_X)
     model.fit(train_X, train_y)
     y_pred = model.predict(test_X)
     plotter(modelType, test_y, y_pred, title)
 
 def makeModel(fileNameTrain, fileNameTest, desc, model, title, distributor = None):
     train_X, train_y, test_X, test_y = makeTrainAndTest(fileNameTrain, fileNameTest, 'pIC50', desc)
-    myPreds, predictionStats = loopedKfoldCrossVal(model, 10, train_X, train_y, title, distributor)
-    createSplitsBarChart(predictionStats, title)
-    createAvgBarChart(predictionStats, title)
-    plotModel(model, train_X, train_y, test_X, test_y, title)
+    for i in range(1, 4):
+        myPreds, predictionStats = loopedKfoldCrossVal(model, 10, train_X, train_y, f"{title} + {i}", distributor)
+        createSplitsBarChart(predictionStats, f"{title} + {i}")
+        createAvgBarChart(predictionStats, f"{title} + {i}")
+        plotModel(model, train_X, train_y, test_X, test_y,  f"{title} + {i}")
