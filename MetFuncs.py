@@ -187,8 +187,13 @@ def mixedCV(fileName, descr, model):
     metabolites = mixDf.natural_product
     train_X = train_X.drop("natural_product", axis = 1)
 
+    ret_df = pd.DataFrame(data = [], columns=['Fold', 'Number of Molecules', 'r2', 'rmsd', 'bias', 'sdep'])
+
     for index in range(1, 4):
-        loopedKfoldCrossVal(model, 10, train_X, train_y, f"Mixture + {model} + {descr} + {index}", metabolites)
+        _, predStats = loopedKfoldCrossVal(model, 10, train_X, train_y, f"Mixture + {model} + {descr} + {index}", metabolites)
+        avgStats = predStats.iloc[-1:]
+        ret_df = ret_df.con
+        
 
 def createSplitsBarChart(predictionStats, title):
 
